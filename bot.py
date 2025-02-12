@@ -48,12 +48,13 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         f"{m['role']}: {m['content']}" for m in messages
     )
     try:
-        completion = await openai.ChatCompletion.acreate(
-            model="o3-mini-2025-01-31",
+        response = await asyncio.to_thread(
+            openai.ChatCompletion.create,
+            model="gpt-3.5-turbo-16k",
             messages=[{"role": "system", "content": prompt}],
             max_tokens=200,
         )
-        return completion.choices[0].message.content or ""
+        return response["choices"][0]["message"]["content"] or ""
     except Exception as e:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
@@ -63,6 +64,10 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
     messages = session.query(ChatHistory).filter(ChatHistory.chat_id == chat_id).all()
     messages = [{"role": m.role, "content": m.content} for m in messages]
     
+    if "search:" in user_message.lower():
+        search_query = user_message.split("search:", 1)[1].strip()
+        return google_search(search_query)
+    
     messages.append({"role": "user", "content": user_message})
     if len(messages) > MAX_RECENT_MESSAGES:
         messages.pop(0)
@@ -70,11 +75,12 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
     summary = await get_chat_summary(messages)
     
     try:
-        completion = await openai.ChatCompletion.acreate(
-            model="o3-mini-2025-01-31",
+        response = await asyncio.to_thread(
+            openai.ChatCompletion.create,
+            model="gpt-3.5-turbo-16k",
             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
         )
-        assistant_message = completion.choices[0].message.content or "I'm sorry, I couldn't generate a response."
+        assistant_message = response["choices"][0]["message"]["content"] or "I'm sorry, I couldn't generate a response."
         
         session.add(ChatHistory(chat_id=chat_id, role="user", content=user_message))
         session.add(ChatHistory(chat_id=chat_id, role="assistant", content=assistant_message))
