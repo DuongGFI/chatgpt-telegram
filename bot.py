@@ -49,7 +49,7 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
     )
     try:
         completion = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo-16k",
+            model="o3-mini-2025-01-31",
             messages=[{"role": "system", "content": prompt}],
             max_tokens=200,
         )
@@ -71,7 +71,7 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
     
     try:
         completion = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo-16k",
+            model="o3-mini-2025-01-31",
             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
         )
         assistant_message = completion.choices[0].message.content or "I'm sorry, I couldn't generate a response."
