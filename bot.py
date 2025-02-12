@@ -63,11 +63,6 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
     session = SessionLocal()
     messages = session.query(ChatHistory).filter(ChatHistory.chat_id == chat_id).all()
     messages = [{"role": m.role, "content": m.content} for m in messages]
-    
-    if "search:" in user_message.lower():
-        search_query = user_message.split("search:", 1)[1].strip()
-        return google_search(search_query)
-    
     messages.append({"role": "user", "content": user_message})
     if len(messages) > MAX_RECENT_MESSAGES:
         messages.pop(0)
@@ -90,10 +85,12 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
         return assistant_message
     except Exception as e:
         logger.error(f"Error in get_chat_response: {e}")
+        session.close()
         return "I'm sorry, there was an error processing your request."
 
 async def handle_message(update: Update, context: CallbackContext):
-    chat_id = update.message.chat_id
+    # Sử dụng update.effective_chat.id thay vì update.message.chat_id
+    chat_id = update.effective_chat.id
     text = update.message.text
     
     if not text:
