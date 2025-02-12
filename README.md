@@ -1,5 +1,4 @@
-### README.md
-# Telegram AI Chatbot
+# Chatgpt x telegram
 
 ## Mô tả
 Bot Telegram sử dụng OpenAI GPT để trả lời tin nhắn của người dùng, lưu giữ ngữ cảnh hội thoại và tóm tắt cuộc trò chuyện. Triển khai bằng `python-telegram-bot` và `openai`. Dữ liệu hội thoại được lưu trữ vào SQLite để đảm bảo ngữ cảnh không bị mất khi bot khởi động lại.
