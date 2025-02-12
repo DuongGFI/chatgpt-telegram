@@ -13,8 +13,8 @@ Bot Telegram sử dụng OpenAI GPT để trả lời tin nhắn của người 
 ## Cài đặt
 1. Clone repository:
    ```sh
-   git clone https://github.com/yourusername/telegram-ai-bot.git
-   cd telegram-ai-bot
+   git clone https://github.com/DuongGFI/chatgpt-telegram.git
+   cd chatgpt-telegram
    ```
 2. Cài đặt các thư viện cần thiết:
    ```sh
