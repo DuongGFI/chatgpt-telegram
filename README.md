@@ -1,13 +1,13 @@
-# Chatgpt x telegram
+# Telegram AI Chatbot
 
 ## Mô tả
-Bot Telegram sử dụng OpenAI GPT để trả lời tin nhắn của người dùng, lưu giữ ngữ cảnh hội thoại và tóm tắt cuộc trò chuyện. Triển khai bằng `python-telegram-bot` và `openai`. Dữ liệu hội thoại được lưu trữ vào SQLite để đảm bảo ngữ cảnh không bị mất khi bot khởi động lại.
+Bot Telegram sử dụng OpenAI GPT để trả lời tin nhắn của người dùng, lưu giữ ngữ cảnh hội thoại và tóm tắt cuộc trò chuyện. Triển khai bằng `python-telegram-bot` và `openai`. Dữ liệu hội thoại được lưu trữ vào PostgreSQL để đảm bảo ngữ cảnh không bị mất khi bot khởi động lại.
 
 ## Yêu cầu
 - Python 3.8+
 - API Key của OpenAI
 - Token Bot Telegram
-- SQLite hoặc PostgreSQL để lưu trữ dữ liệu
+- PostgreSQL để lưu trữ dữ liệu
 
 ## Cài đặt
 1. Clone repository:
@@ -25,15 +25,22 @@ Bot Telegram sử dụng OpenAI GPT để trả lời tin nhắn của người 
      ```sh
      export TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
      export OPENAI_API_KEY="your-openai-api-key"
-     export DATABASE_URL="sqlite:///chat_history.db"
+     export DATABASE_URL="postgres://user:password@host:port/dbname"
      ```
 
-## Thiết lập cơ sở dữ liệu
-1. Chạy lệnh sau để khởi tạo database:
-   ```sh
-   python init_db.py
-   ```
-2. Kiểm tra xem file `chat_history.db` đã được tạo trong thư mục dự án chưa.
+## Thiết lập cơ sở dữ liệu trên Render.com
+1. **Tạo PostgreSQL trên Render**:
+   - Truy cập [Render](https://render.com/) → **New** → **PostgreSQL**
+   - Chọn gói **Free Tier**
+   - Sao chép `DATABASE_URL`
+2. **Thêm biến môi trường trên Render Web Service**:
+   - Truy cập Web Service → **Environment Variables**
+   - Thêm biến `DATABASE_URL`
+3. **Khởi tạo database khi deploy**:
+   - Vào **Start Command** trên Render, đặt:
+     ```sh
+     python -c "from bot import Base, engine; Base.metadata.create_all(engine)" && python bot.py
+     ```
 
 ## Chạy Bot
 ```sh
