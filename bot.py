@@ -8,6 +8,7 @@ from telegram.ext import Application, MessageHandler, filters, CallbackContext
 import openai
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
+from keep_alive import start_keep_alive
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Lấy thông tin từ biến môi trường
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///chat_history.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 openai.api_key = OPENAI_API_KEY
 
 # Cấu hình database
@@ -100,6 +101,7 @@ async def handle_message(update: Update, context: CallbackContext):
         await update.message.reply_text("I'm sorry, an error occurred.")
 
 def main():
+    start_keep_alive()  # Giữ bot luôn online
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
