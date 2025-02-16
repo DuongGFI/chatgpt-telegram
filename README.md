@@ -1,136 +1,56 @@
 # ChatGPT Telegram Bot
 
-Đây là dự án bot Telegram tích hợp ChatGPT, sử dụng FastAPI để xử lý webhook, lưu trữ lịch sử trò chuyện với SQLAlchemy và giữ server luôn bật qua cơ chế self-ping khi triển khai trên Render.com.
+Dự án này là một Telegram chat bot tích hợp ChatGPT, được thiết kế để duy trì ngữ cảnh trò chuyện hiệu quả qua việc lưu trữ 10 tin nhắn gần nhất và tự động tóm tắt các tin nhắn cũ hơn trước khi gửi cho ChatGPT. Đồng thời, dự án sử dụng cơ chế self-ping để giữ kết nối ổn định trên Render.com.
 
 ## Tính năng
 
-- **Tương tác với Telegram:** Nhận và xử lý tin nhắn của người dùng qua webhook.
-- **ChatGPT Integration:** Sử dụng OpenAI API để tạo phản hồi thông minh từ ChatGPT.
-- **Lưu trữ lịch sử trò chuyện:** Ghi nhận và lưu trữ lịch sử trò chuyện qua SQLAlchemy.
-- **Webhook với FastAPI:** Xây dựng API bằng FastAPI, cung cấp endpoint `/webhook` để nhận cập nhật từ Telegram và endpoint `/docs` để xem tài liệu API.
-- **Keep Alive:** Tích hợp cơ chế tự ping (self-ping) sử dụng FastAPI để duy trì uptime khi triển khai trên Render.com.
+- **Tích hợp ChatGPT:**  
+  Bot sử dụng API của OpenAI để tạo ra các phản hồi thông minh, mang đến trải nghiệm trò chuyện tự nhiên cho người dùng.
 
-## Yêu cầu
+- **Lưu trữ và Quản lý Ngữ cảnh:**  
+  - **Lưu 10 tin nhắn gần nhất:** Dự án lưu lại 10 tin nhắn cuối cùng để duy trì thông tin ngữ cảnh cần thiết cho cuộc trò chuyện.  
+  - **Tóm tắt tin nhắn cũ:** Các tin nhắn xa hơn sẽ được tóm tắt lại và gửi cho ChatGPT nhằm giữ lại ngữ cảnh tổng thể của cuộc trò chuyện mà không bị quá tải dữ liệu.
 
-- Python 3.8 trở lên
-- Các gói Python được liệt kê trong [requirements.txt](requirements.txt)
+- **Cơ chế Self-Ping:**  
+  Để duy trì kết nối liên tục và tránh tình trạng server bị “ngủ”, bot sử dụng self-ping định kỳ nhằm đảm bảo dịch vụ luôn sẵn sàng, đặc biệt khi triển khai trên Render.com.
 
-## Cài đặt
+## Triển khai
 
-1. **Clone repository:**
+### Chuẩn bị môi trường
 
-   ```bash
-   git clone https://github.com/DuongGFI/chatgpt-telegram.git
-   cd chatgpt-telegram
-   ```
+1. **Lấy Token của Bot Telegram:**
+   - Tìm [BotFather](https://core.telegram.org/bots#6-botfather) trên Telegram, tạo bot mới và nhận token.
+   - Lưu lại token này cho biến môi trường `TELEGRAM_BOT_TOKEN`.
 
-2. **Cài đặt các gói cần thiết:**
+2. **Lấy API Key của OpenAI:**
+   - Truy cập [OpenAI Platform](https://platform.openai.com/account/api-keys), đăng nhập và tạo API key.
+   - Lưu lại key cho biến môi trường `OPENAI_API_KEY`.
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+3. **Cấu hình cơ sở dữ liệu:**  
+   Nếu sử dụng PostgreSQL hoặc một hệ quản trị cơ sở dữ liệu khác, hãy tạo database và lấy URL kết nối cho biến `DATABASE_URL`.
 
-3. **Cấu hình biến môi trường:**
-
-   Bạn có thể tạo file `.env` hoặc thiết lập trực tiếp trong môi trường với các biến sau:
-   
-   - `TELEGRAM_BOT_TOKEN`: Token của bot Telegram.
-   - `OPENAI_API_KEY`: API key của OpenAI.
-   - `DATABASE_URL`: URL kết nối đến cơ sở dữ liệu (ví dụ: PostgreSQL).
-   - `WEBHOOK_URL`: URL webhook public của ứng dụng (ví dụ: `https://your-app.onrender.com/webhook`).
+4. **Cấu hình URL cho Webhook & Render:**  
+   - `WEBHOOK_URL`: URL công khai của endpoint webhook (ví dụ: `https://your-app.onrender.com/webhook`).
    - `RENDER_URL`: URL của ứng dụng trên Render.com (ví dụ: `https://your-app.onrender.com/`).
 
-## Cấu trúc dự án
-
-- **bot.py:**  
-  File chính chứa logic của bot, tích hợp FastAPI với endpoint `/webhook` để nhận cập nhật từ Telegram, xử lý tin nhắn, tương tác với OpenAI API và lưu trữ lịch sử trò chuyện.
-
-- **keep_alive.py:**  
-  File tích hợp FastAPI để giữ cho server luôn bật bằng cách tự động ping chính URL của ứng dụng ở mỗi 10 phút. (Xem phần [Keep Alive](#keep-alive) bên dưới.)
-
-- **requirements.txt:**  
-  Danh sách các gói cần cài đặt.
-
-## Chạy dự án cục bộ
-
-1. **Chạy ứng dụng FastAPI:**
-
-   ```bash
-   uvicorn bot:web_app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-2. **Kiểm tra hoạt động của server:**
-
-   - Truy cập `http://localhost:8000/` để xác nhận server đang chạy.
-   - Truy cập `http://localhost:8000/docs` để xem tài liệu API do FastAPI tạo ra.
-
-## Keep Alive
-
-File `keep_alive.py` đã được viết lại sử dụng FastAPI để duy trì uptime thông qua background task tự ping:
-
-```python
-from fastapi import FastAPI
-import requests
-import os
-import time
-import threading
-
-app = FastAPI()
-
-@app.get("/")
-def home():
-    return {"message": "Bot is running!"}
-
-def keep_awake():
-    while True:
-        try:
-            url = os.getenv("RENDER_URL")  # URL của ứng dụng, ví dụ: https://your-app.onrender.com/
-            if url:
-                response = requests.get(url, timeout=5)
-                print(f"Ping response: {response.status_code}")
-            time.sleep(600)  # Ping mỗi 10 phút
-        except Exception as e:
-            print(f"Ping failed: {e}")
-
-@app.on_event("startup")
-def start_keep_awake():
-    thread = threading.Thread(target=keep_awake, daemon=True)
-    thread.start()
-```
-
-*Lưu ý:*  
-- Đảm bảo biến môi trường `RENDER_URL` được thiết lập chính xác.
-- Nếu bạn sử dụng gói Always On của Render.com, cơ chế self-ping có thể không cần thiết.
-
-## Triển khai trên Render.com
+### Triển khai trên Render.com
 
 1. **Đẩy mã nguồn lên GitHub:**  
    Đảm bảo toàn bộ dự án (bao gồm `bot.py`, `keep_alive.py` và `requirements.txt`) đã được đẩy lên repository GitHub.
 
 2. **Tạo dịch vụ Web trên Render.com:**
-   - **Build Command:**  
+   - **Build Command:**
      ```bash
      pip install -r requirements.txt
      ```
-   - **Start Command:**  
+   - **Start Command:**
      ```bash
      uvicorn bot:web_app --host 0.0.0.0 --port $PORT
      ```
 
-3. **Thiết lập biến môi trường:**  
-   Trong Render Dashboard, cấu hình các biến môi trường: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`, `WEBHOOK_URL` và `RENDER_URL`.
+3. **Thiết lập biến môi trường trên Render Dashboard:**  
+   Cấu hình các biến: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`, `WEBHOOK_URL` và `RENDER_URL`.
 
-4. **Đăng ký webhook với Telegram:**  
-   - Khi ứng dụng khởi động, bạn có thể tự động đăng ký webhook qua code hoặc thực hiện thủ công bằng cách truy cập URL:
-     ```
-     https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://your-app.onrender.com/webhook
-     ```
-   - Thay `<TELEGRAM_BOT_TOKEN>` và `your-app` bằng giá trị tương ứng.
+---
 
-## Đóng góp
-
-Các đóng góp cho dự án rất được hoan nghênh. Hãy mở issue hoặc pull request nếu bạn muốn báo cáo lỗi, đưa ra cải tiến hoặc thêm tính năng mới.
-
-## Giấy phép
-
-Dự án này được cấp phép theo [MIT License](LICENSE).
+Với các hướng dẫn trên, bạn đã có thể triển khai một Telegram chat bot tích hợp ChatGPT, đảm bảo duy trì ngữ cảnh trò chuyện thông qua lưu trữ và tóm tắt tin nhắn, đồng thời giữ cho server luôn hoạt động nhờ cơ chế self-ping.
