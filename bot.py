@@ -119,117 +119,102 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
 #             chat_id=chat_id,
 #             text="I'm sorry, an error occurred."
 #         )
-async def get_chat_response(chat_id: int, user_message: str, message_object=None):
+
+async def send_message(self, chat_id: int, text: str) -> None:
+    """
+    Send message to telegram chat with typing action and streaming
+    """
     try:
-        recent_messages = list(messages_collection.find(
-            {'chat_id': chat_id}
-        ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
+        # Show typing action
+        await self.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        messages = [{"role": m['role'], "content": m['content']}
-                   for m in recent_messages][::-1]
-        messages.append({"role": "user", "content": user_message})
+        # Split message into chunks if too long
+        if len(text) > 4096:
+            chunks = [text[i:i+4096] for i in range(0, len(text), 4096)]
 
-        if len(messages) > MAX_RECENT_MESSAGES:
-            summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
+            # Send first chunk as initial message
+            message = await self.bot.send_message(
+                chat_id=chat_id,
+                text=chunks[0][:20] + "..." # Initial preview
+            )
+
+            # Stream remaining chunks
+            current_text = chunks[0]
+            for chunk in chunks:
+                current_text += chunk
+                await asyncio.sleep(0.01) # Small delay between updates
+                try:
+                    await message.edit_text(current_text)
+                except Exception as e:
+                    logger.error(f"Failed to edit message: {e}")
+                    continue
+
         else:
-            summary = ""
+            # For shorter messages, show typing then send full message
+            message = await self.bot.send_message(
+                chat_id=chat_id,
+                text="..." # Initial placeholder
+            )
 
-        # Tạo stream response
-        stream = await client.chat.completions.create(
-            model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
-                    + messages,
-            stream=True
-        )
+            # Stream the message character by character
+            current_text = ""
+            for char in text:
+                current_text += char
+                if len(current_text) % 5 == 0: # Update every 5 chars
+                    try:
+                        await message.edit_text(current_text)
+                        await asyncio.sleep(0.01)
+                    except Exception as e:
+                        logger.error(f"Failed to edit message: {e}")
+                        continue
 
-        full_response = ""
-        buffer = ""  # Buffer để tích lũy text
-
-        async for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                content = chunk.choices[0].delta.content
-                buffer += content
-                full_response += content
-
-                # Chỉ cập nhật khi buffer có đủ ký tự hoặc là dấu câu
-                if len(buffer) >= 20 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
-                    if message_object and full_response.strip():  # Kiểm tra nội dung không trống
-                        try:
-                            await message_object.edit_text(full_response)
-                            buffer = ""  # Reset buffer sau khi cập nhật
-                            await asyncio.sleep(0.1)
-                        except Exception as edit_error:
-                            logger.error(f"Error editing message: {edit_error}")
-
-        # Cập nhật lần cuối với toàn bộ nội dung
-        if message_object and full_response.strip():
+            # Ensure final message is complete
             try:
-                await message_object.edit_text(full_response)
-            except Exception as final_edit_error:
-                logger.error(f"Error in final message edit: {final_edit_error}")
-
-        # Lưu tin nhắn vào MongoDB
-        if full_response.strip():  # Chỉ lưu nếu có nội dung
-            messages_collection.insert_many([
-                {
-                    'chat_id': chat_id,
-                    'role': "user",
-                    'content': user_message,
-                    'timestamp': datetime.now()
-                },
-                {
-                    'chat_id': chat_id,
-                    'role': "assistant",
-                    'content': full_response,
-                    'timestamp': datetime.now()
-                }
-            ])
-
-        return full_response
+                await message.edit_text(text)
+            except Exception as e:
+                logger.error(f"Failed to edit final message: {e}")
 
     except Exception as e:
-        logger.error(f"Error in get_chat_response: {e}")
-        return "I'm sorry, there was an error processing your request."
+        logger.error(f"Failed to send message: {e}")
+        # Fallback to simple message if streaming fails
+        await self.bot.send_message(chat_id=chat_id, text=text)
 
-async def handle_message(update: Update, context: CallbackContext):
-    chat_id = update.effective_chat.id
-    text = update.message.text
-    if not text:
+# Sửa hàm handle_message để sử dụng send_message mới
+async def handle_message(self, update: Update, context: CallbackContext) -> None:
+    """
+    Handle incoming messages
+    """
+    if update.edited_message is not None:
         return
 
-    try:
-        # Hiển thị trạng thái đang nhập
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    chat_id = update.effective_chat.id
+    # user_id = update.effective_user.id
 
-        # Tạo tin nhắn placeholder
-        message = await context.bot.send_message(
-            chat_id=chat_id,
-            text="Đang suy nghĩ..."  # Placeholder rõ ràng hơn
-        )
+    if update.message.text is None:
+        return
 
-        # Gọi get_chat_response với message object
-        response = await get_chat_response(chat_id, text, message)
+    async with self.semaphore:
+        try:
+            # Show typing indicator
+            await self.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Kiểm tra response trước khi cập nhật lần cuối
-        if response and response.strip():
-            try:
-                await message.edit_text(response)
-            except Exception as e:
-                logger.error(f"Error in final update: {e}")
-                # Gửi tin nhắn mới nếu không thể edit
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=response
-                )
-        else:
-            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.")
+            # Get response from ChatGPT
+            response = await self.chatgpt.send_message(
+                update.message.text,
+                chat_id=chat_id,
+                user_id=user_id
+            )
 
-    except Exception as e:
-        logger.error(f"Error handling message: {e}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Đã xảy ra lỗi, vui lòng thử lại."
-        )
+            # Send response with streaming
+            await self.send_message(chat_id, response)
+
+        except Exception as e:
+            error_text = f"Error: {str(e)}"
+            logger.error(error_text)
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=error_text
+            )
 # Tạo FastAPI app
 web_app = FastAPI()
 
