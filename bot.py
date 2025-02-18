@@ -6,6 +6,7 @@ import uvicorn  # Thiếu import cho running server
 from typing import List, Dict
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
@@ -152,7 +153,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 full_response += content
 
                 # Chỉ cập nhật khi có sự thay đổi đáng kể
-                if len(buffer) >= 20 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
+                if len(buffer) >= 5 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
                         try:
                             await message_object.edit_text(full_response)
