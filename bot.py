@@ -286,7 +286,7 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@web_app.get("/", methods=["GET", "HEAD"])
+@web_app.route("/", methods=["GET", "HEAD"])
 async def home():
     return "Bot is alive!"
 
