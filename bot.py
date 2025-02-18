@@ -60,66 +60,6 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
 
-# async def get_chat_response(chat_id: int, user_message: str) -> str:
-#     try:
-#         # Lấy tin nhắn gần đây từ MongoDB
-#         recent_messages = list(messages_collection.find(
-#             {'chat_id': chat_id}
-#         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
-
-#         messages = [{"role": m['role'], "content": m['content']}
-#                    for m in recent_messages][::-1]  # Đảo ngược để có thứ tự đúng
-
-#         messages.append({"role": "user", "content": user_message})
-
-#         if len(messages) > MAX_RECENT_MESSAGES:
-#             summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
-#         else:
-#             summary = ""
-
-#         response = await client.chat.completions.create(
-#             model="gpt-3.5-turbo-16k",
-#             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
-#                     + messages,
-#         )
-
-#         assistant_message = response.choices[0].message.content or "I'm sorry, I couldn't generate a response."
-
-#         # Lưu tin nhắn vào MongoDB
-#         messages_collection.insert_many([
-#             {
-#                 'chat_id': chat_id,
-#                 'role': "user",
-#                 'content': user_message,
-#                 'timestamp': datetime.now()
-#             },
-#             {
-#                 'chat_id': chat_id,
-#                 'role': "assistant",
-#                 'content': assistant_message,
-#                 'timestamp': datetime.now()
-#             }
-#         ])
-
-#         return assistant_message
-#     except Exception as e:
-#         logger.error(f"Error in get_chat_response: {e}")
-#         return "I'm sorry, there was an error processing your request."
-
-# async def handle_message(update: Update, context: CallbackContext):
-#     chat_id = update.effective_chat.id
-#     text = update.message.text
-#     if not text:
-#         return
-#     try:
-#         response = await get_chat_response(chat_id, text)
-#         await context.bot.send_message(chat_id=chat_id, text=response)
-#     except Exception as e:
-#         logger.error(f"Error handling message: {e}")
-#         await context.bot.send_message(
-#             chat_id=chat_id,
-#             text="I'm sorry, an error occurred."
-#         )
 async def get_chat_response(chat_id: int, user_message: str, message_object=None):
     try:
         recent_messages = list(messages_collection.find(
