@@ -2,13 +2,12 @@ import logging
 import asyncio
 import os
 from typing import List, Dict
-
+from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
-from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.orm import sessionmaker, declarative_base
+from pymongo import MongoClient
 from keep_alive import keep_alive
 
 # Cấu hình logging
@@ -18,25 +17,16 @@ logger = logging.getLogger(__name__)
 # Lấy thông tin từ biến môi trường
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL")
+MONGODB_URI = os.getenv("MONGODB_URI")  # MongoDB Atlas connection string
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 # Khởi tạo OpenAI client
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Cấu hình database
-Base = declarative_base()
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-
-class ChatHistory(Base):
-    __tablename__ = "chat_history"
-    id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, index=True)
-    role = Column(String, index=True)
-    content = Column(Text)
-
-Base.metadata.create_all(engine)
+# Kết nối MongoDB
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client['telegram_bot']
+messages_collection = db['chat_history']
 
 MAX_RECENT_MESSAGES = 10
 CONTEXT_UPDATE_INTERVAL = 5 * 60
@@ -62,30 +52,50 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         return "Error generating summary."
 
 async def get_chat_response(chat_id: int, user_message: str) -> str:
-    session = SessionLocal()
     try:
-        messages = session.query(ChatHistory).filter(ChatHistory.chat_id == chat_id).all()
-        messages = [{"role": m.role, "content": m.content} for m in messages]
+        # Lấy tin nhắn gần đây từ MongoDB
+        recent_messages = list(messages_collection.find(
+            {'chat_id': chat_id}
+        ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
+
+        messages = [{"role": m['role'], "content": m['content']}
+                   for m in recent_messages][::-1]  # Đảo ngược để có thứ tự đúng
+
         messages.append({"role": "user", "content": user_message})
+
         if len(messages) > MAX_RECENT_MESSAGES:
-            messages.pop(0)
-        summary = await get_chat_summary(messages)
-        
+            summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
+        else:
+            summary = ""
+
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
+            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
+                    + messages,
         )
+
         assistant_message = response.choices[0].message.content or "I'm sorry, I couldn't generate a response."
-        
-        session.add(ChatHistory(chat_id=chat_id, role="user", content=user_message))
-        session.add(ChatHistory(chat_id=chat_id, role="assistant", content=assistant_message))
-        session.commit()
+
+        # Lưu tin nhắn vào MongoDB
+        messages_collection.insert_many([
+            {
+                'chat_id': chat_id,
+                'role': "user",
+                'content': user_message,
+                'timestamp': datetime.now()
+            },
+            {
+                'chat_id': chat_id,
+                'role': "assistant",
+                'content': assistant_message,
+                'timestamp': datetime.now()
+            }
+        ])
+
         return assistant_message
     except Exception as e:
         logger.error(f"Error in get_chat_response: {e}")
         return "I'm sorry, there was an error processing your request."
-    finally:
-        session.close()
 
 async def handle_message(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
@@ -133,6 +143,7 @@ async def on_shutdown():
         if is_initialized:
             await telegram_app.shutdown()
             await telegram_app.bot.delete_webhook()
+            mongo_client.close()
             logger.info("Webhook deleted and application shut down")
             is_initialized = False
     except Exception as e:
