@@ -1,6 +1,8 @@
 import logging
 import asyncio
 import os
+import time  # Thiếu import cho health_check
+import uvicorn  # Thiếu import cho running server
 from typing import List, Dict
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
@@ -8,7 +10,8 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from pymongo import MongoClient
-from keep_alive import keep_alive
+from keep_alive import keep_alive, start_ping
+
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -24,10 +27,16 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # Kết nối MongoDB
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client['telegram_bot']
-messages_collection = db['chat_history']
-
+try:
+    mongo_client = MongoClient(MONGODB_URI)
+    db = mongo_client['telegram_bot']
+    messages_collection = db['chat_history']
+    # Test connection
+    mongo_client.server_info()
+except Exception as e:
+    logger.error(f"MongoDB connection failed: {e}")
+    raise
+    
 MAX_RECENT_MESSAGES = 10
 CONTEXT_UPDATE_INTERVAL = 5 * 60
 SUMMARY_PROMPT = (
@@ -128,6 +137,9 @@ is_initialized = False
 async def on_startup():
     global is_initialized
     if not is_initialized:
+        # Create indexes
+        messages_collection.create_index([("chat_id", 1)])
+        messages_collection.create_index([("timestamp", -1)])
         await telegram_app.initialize()
         if WEBHOOK_URL:
             await telegram_app.bot.set_webhook(WEBHOOK_URL)
@@ -161,11 +173,19 @@ async def telegram_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @web_app.get("/")
-async def index():
-    return {"message": "Telegram bot webhook is running."}
+async def home():
+    return "Bot is alive!"
+
+@web_app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "uptime": "active"
+    }
 
 if __name__ == "__main__":
+    port = int(os.getenv("PORT", 10000))
     keep_alive()
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("bot:web_app", host="0.0.0.0", port=port, reload=True)
+    start_ping()
+    uvicorn.run("bot:web_app", host="0.0.0.0", port=port)
