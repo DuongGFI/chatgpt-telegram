@@ -1,56 +1,114 @@
-# ChatGPT Telegram Bot
+# ChatGPT Telegram Bot với MongoDB Atlas
 
-Dự án này là một Telegram chat bot tích hợp ChatGPT, được thiết kế để duy trì ngữ cảnh trò chuyện hiệu quả qua việc lưu trữ 10 tin nhắn gần nhất và tự động tóm tắt các tin nhắn cũ hơn trước khi gửi cho ChatGPT. Đồng thời, dự án sử dụng cơ chế self-ping để giữ kết nối ổn định trên Render.com.
+Bot Telegram tích hợp ChatGPT với khả năng lưu trữ và quản lý ngữ cảnh trò chuyện thông minh. Sử dụng MongoDB Atlas để lưu trữ tin nhắn và tự động tóm tắt các cuộc trò chuyện dài nhằm duy trì ngữ cảnh hiệu quả.
 
-## Tính năng
+## ✨ Tính Năng Chính
 
-- **Tích hợp ChatGPT:**  
-  Bot sử dụng API của OpenAI để tạo ra các phản hồi thông minh, mang đến trải nghiệm trò chuyện tự nhiên cho người dùng.
+### 1. Quản Lý Ngữ Cảnh Thông Minh
+- Lưu trữ 10 tin nhắn gần nhất để duy trì ngữ cảnh trò chuyện ngắn hạn.
+- Tự động tóm tắt các tin nhắn cũ khi vượt quá giới hạn.
+- Tích hợp ngữ cảnh vào phản hồi nhằm đảm bảo câu trả lời luôn nhất quán.
 
-- **Lưu trữ và Quản lý Ngữ cảnh:**  
-  - **Lưu 10 tin nhắn gần nhất:** Dự án lưu lại 10 tin nhắn cuối cùng để duy trì thông tin ngữ cảnh cần thiết cho cuộc trò chuyện.  
-  - **Tóm tắt tin nhắn cũ:** Các tin nhắn xa hơn sẽ được tóm tắt lại và gửi cho ChatGPT nhằm giữ lại ngữ cảnh tổng thể của cuộc trò chuyện mà không bị quá tải dữ liệu.
+### 2. Hệ Thống Lưu Trữ MongoDB Atlas
+- Lưu trữ tin nhắn với cấu trúc NoSQL linh hoạt.
+- Ghi nhận timestamp cho mỗi tin nhắn để quản lý thời gian thực.
+- Truy vấn hiệu quả các tin nhắn gần đây.
 
-- **Cơ chế Self-Ping:**  
-  Để duy trì kết nối liên tục và tránh tình trạng server bị “ngủ”, bot sử dụng self-ping định kỳ nhằm đảm bảo dịch vụ luôn sẵn sàng, đặc biệt khi triển khai trên Render.com.
+### 3. Cơ Chế Tóm Tắt Thông Minh
+- Sử dụng một prompt tóm tắt đặc biệt (SUMMARY_PROMPT) để hướng dẫn ChatGPT tóm tắt cuộc trò chuyện, tập trung vào các chi tiết quan trọng, sở thích của người dùng và thông tin cần thiết nhằm duy trì ngữ cảnh.
 
-## Triển khai
+## 🛠 Cài Đặt và Triển Khai
 
-### Chuẩn bị môi trường
+### Yêu Cầu Hệ Thống
+- `python-telegram-bot>=20.0`
+- `fastapi>=0.68.0`
+- `uvicorn>=0.15.0`
+- `openai>=1.0.0`
+- `pymongo>=4.0.0`
+- `python-dotenv>=0.19.0`
 
-1. **Lấy Token của Bot Telegram:**
-   - Tìm [BotFather](https://core.telegram.org/bots#6-botfather) trên Telegram, tạo bot mới và nhận token.
-   - Lưu lại token này cho biến môi trường `TELEGRAM_BOT_TOKEN`.
+### Biến Môi Trường
 
-2. **Lấy API Key của OpenAI:**
-   - Truy cập [OpenAI Platform](https://platform.openai.com/account/api-keys), đăng nhập và tạo API key.
-   - Lưu lại key cho biến môi trường `OPENAI_API_KEY`.
+Tạo file `.env` với nội dung:
+```
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+OPENAI_API_KEY=your_openai_api_key
+MONGODB_URI=your_mongodb_connection_string
+WEBHOOK_URL=your_webhook_url
+```
 
-3. **Cấu hình cơ sở dữ liệu:**  
-   Nếu sử dụng PostgreSQL hoặc một hệ quản trị cơ sở dữ liệu khác, hãy tạo database và lấy URL kết nối cho biến `DATABASE_URL`.
+### Triển Khai Local
 
-4. **Cấu hình URL cho Webhook & Render:**  
-   - `WEBHOOK_URL`: URL công khai của endpoint webhook (ví dụ: `https://your-app.onrender.com/webhook`).
-   - `RENDER_URL`: URL của ứng dụng trên Render.com (ví dụ: `https://your-app.onrender.com/`).
+```bash
+# Clone repository
+git clone https://github.com/your-username/chatgpt-telegram.git
 
-### Triển khai trên Render.com
+# Cài đặt dependencies
+pip install -r requirements.txt
 
-1. **Đẩy mã nguồn lên GitHub:**  
-   Đảm bảo toàn bộ dự án (bao gồm `bot.py`, `keep_alive.py` và `requirements.txt`) đã được đẩy lên repository GitHub.
+# Chạy bot
+python bot.py
+```
 
-2. **Tạo dịch vụ Web trên Render.com:**
-   - **Build Command:**
-     ```bash
-     pip install -r requirements.txt
-     ```
-   - **Start Command:**
-     ```bash
-     uvicorn bot:web_app --host 0.0.0.0 --port $PORT
-     ```
+### Triển Khai trên Render.com
 
-3. **Thiết lập biến môi trường trên Render Dashboard:**  
-   Cấu hình các biến: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`, `WEBHOOK_URL` và `RENDER_URL`.
+#### Chuẩn Bị Repository
+- Push code lên GitHub và đảm bảo đầy đủ các file cần thiết.
 
----
+#### Tạo Web Service trên Render
+- Đăng nhập vào Render.com.
+- Chọn **New + → Web Service** và connect với GitHub repository.
 
-Với các hướng dẫn trên, bạn đã có thể triển khai một Telegram chat bot tích hợp ChatGPT, đảm bảo duy trì ngữ cảnh trò chuyện thông qua lưu trữ và tóm tắt tin nhắn, đồng thời giữ cho server luôn hoạt động nhờ cơ chế self-ping.
+#### Cấu Hình Service
+- **Name:** chatgpt-telegram-bot  
+- **Environment:** Python 3  
+- **Build Command:** `pip install -r requirements.txt`  
+- **Start Command:** `python bot.py`
+
+#### Environment Variables
+```
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+OPENAI_API_KEY=your_openai_api_key
+MONGODB_URI=your_mongodb_connection_string
+WEBHOOK_URL=https://your-app-name.onrender.com/webhook
+RENDER_URL=https://your-app-name.onrender.com
+```
+
+## 💾 Cấu Trúc Dữ Liệu
+
+**Collection:** `chat_history`
+
+```json
+{
+    "chat_id": "Integer,      // ID cuộc trò chuyện Telegram",
+    "role": "String,          // 'user' hoặc 'assistant'",
+    "content": "String,       // Nội dung tin nhắn",
+    "timestamp": "DateTime    // Thời gian gửi tin nhắn"
+}
+```
+
+## 🔍 Monitoring và Troubleshooting
+
+### Health Check Endpoint
+- Có một endpoint `/health` kiểm tra trạng thái của hệ thống, trả về thông tin về:
+  - **status:** trạng thái tổng thể.
+  - **database:** kết nối đến MongoDB.
+  - **bot:** trạng thái hoạt động của bot.
+
+### Common Issues
+
+#### Webhook Errors
+- Kiểm tra lại `WEBHOOK_URL`.
+- Xác minh chứng chỉ SSL.
+- Kiểm tra phản hồi từ API Telegram.
+
+#### Database Connection
+- Kiểm tra giá trị của `MONGODB_URI`.
+- Xem xét cài đặt Network Access.
+- Theo dõi trạng thái kết nối.
+
+## 📝 License
+
+Phân phối theo giấy phép MIT. Xem file `LICENSE` để biết thêm chi tiết.
+
+⭐️ From Dương Nguyễn
