@@ -286,9 +286,32 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@web_app.route("/", methods=["GET", "HEAD"])
+# Thêm exception handler cho tất cả các exception
+@web_app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error: {exc}")
+    return JSONResponse(
+        status_code=200,  # Trả về 200 thay vì 500
+        content={"status": "ok"}
+    )
+
+# Thêm middleware để xử lý request HEAD
+@web_app.middleware("http")
+async def handle_head_requests(request: Request, call_next):
+    if request.method == "HEAD":
+        # Trả về response 200 cho HEAD request
+        return JSONResponse(
+            status_code=200,
+            content={"status": "ok"}
+        )
+    response = await call_next(request)
+    return response
+
+# Sửa route "/" để xử lý cả GET và HEAD
+@web_app.get("/")
+@web_app.head("/")
 async def home():
-    return "Bot is alive!"
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
