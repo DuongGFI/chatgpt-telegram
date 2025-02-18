@@ -59,16 +59,74 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
 
-async def get_chat_response(chat_id: int, user_message: str) -> str:
+# async def get_chat_response(chat_id: int, user_message: str) -> str:
+#     try:
+#         # Lấy tin nhắn gần đây từ MongoDB
+#         recent_messages = list(messages_collection.find(
+#             {'chat_id': chat_id}
+#         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
+
+#         messages = [{"role": m['role'], "content": m['content']}
+#                    for m in recent_messages][::-1]  # Đảo ngược để có thứ tự đúng
+
+#         messages.append({"role": "user", "content": user_message})
+
+#         if len(messages) > MAX_RECENT_MESSAGES:
+#             summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
+#         else:
+#             summary = ""
+
+#         response = await client.chat.completions.create(
+#             model="gpt-3.5-turbo-16k",
+#             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
+#                     + messages,
+#         )
+
+#         assistant_message = response.choices[0].message.content or "I'm sorry, I couldn't generate a response."
+
+#         # Lưu tin nhắn vào MongoDB
+#         messages_collection.insert_many([
+#             {
+#                 'chat_id': chat_id,
+#                 'role': "user",
+#                 'content': user_message,
+#                 'timestamp': datetime.now()
+#             },
+#             {
+#                 'chat_id': chat_id,
+#                 'role': "assistant",
+#                 'content': assistant_message,
+#                 'timestamp': datetime.now()
+#             }
+#         ])
+
+#         return assistant_message
+#     except Exception as e:
+#         logger.error(f"Error in get_chat_response: {e}")
+#         return "I'm sorry, there was an error processing your request."
+
+# async def handle_message(update: Update, context: CallbackContext):
+#     chat_id = update.effective_chat.id
+#     text = update.message.text
+#     if not text:
+#         return
+#     try:
+#         response = await get_chat_response(chat_id, text)
+#         await context.bot.send_message(chat_id=chat_id, text=response)
+#     except Exception as e:
+#         logger.error(f"Error handling message: {e}")
+#         await context.bot.send_message(
+#             chat_id=chat_id,
+#             text="I'm sorry, an error occurred."
+#         )
+async def get_chat_response(chat_id: int, user_message: str, message_object=None):
     try:
-        # Lấy tin nhắn gần đây từ MongoDB
         recent_messages = list(messages_collection.find(
             {'chat_id': chat_id}
         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
 
         messages = [{"role": m['role'], "content": m['content']}
-                   for m in recent_messages][::-1]  # Đảo ngược để có thứ tự đúng
-
+                   for m in recent_messages][::-1]
         messages.append({"role": "user", "content": user_message})
 
         if len(messages) > MAX_RECENT_MESSAGES:
@@ -76,13 +134,23 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
         else:
             summary = ""
 
-        response = await client.chat.completions.create(
+        # Tạo stream response
+        stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
                     + messages,
+            stream=True  # Bật chế độ stream
         )
 
-        assistant_message = response.choices[0].message.content or "I'm sorry, I couldn't generate a response."
+        full_response = ""
+        async for chunk in stream:
+            if chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                full_response += content
+                # Nếu có message_object, cập nhật nội dung
+                if message_object:
+                    await message_object.edit_text(full_response)
+                    await asyncio.sleep(0.01)
 
         # Lưu tin nhắn vào MongoDB
         messages_collection.insert_many([
@@ -95,31 +163,43 @@ async def get_chat_response(chat_id: int, user_message: str) -> str:
             {
                 'chat_id': chat_id,
                 'role': "assistant",
-                'content': assistant_message,
+                'content': full_response,
                 'timestamp': datetime.now()
             }
         ])
 
-        return assistant_message
+        return full_response
     except Exception as e:
         logger.error(f"Error in get_chat_response: {e}")
         return "I'm sorry, there was an error processing your request."
-
 async def handle_message(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     text = update.message.text
     if not text:
         return
+
     try:
-        response = await get_chat_response(chat_id, text)
-        await context.bot.send_message(chat_id=chat_id, text=response)
+        # Hiển thị trạng thái đang nhập
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        # Tạo tin nhắn placeholder
+        message = await context.bot.send_message(
+            chat_id=chat_id,
+            text="..."
+        )
+
+        # Gọi get_chat_response với message object
+        response = await get_chat_response(chat_id, text, message)
+
+        # Đảm bảo tin nhắn cuối cùng được hiển thị đầy đủ
+        await message.edit_text(response)
+
     except Exception as e:
         logger.error(f"Error handling message: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
             text="I'm sorry, an error occurred."
         )
-
 # Tạo FastAPI app
 web_app = FastAPI()
 
