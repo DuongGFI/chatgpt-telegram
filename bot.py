@@ -7,7 +7,7 @@ from typing import List, Dict
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
-from telegram import Update
+from telegram import Update, ParseMode
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from pymongo import MongoClient
@@ -15,6 +15,15 @@ from pymongo import MongoClient
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Cấu hình chat modes: có thể bổ sung thêm các chế độ khác nếu cần
+config = {
+    "chat_modes": {
+         "default": {"parse_mode": "html"},
+         "alternative": {"parse_mode": "markdown"}
+    },
+    "enable_message_streaming": False  # Điều chỉnh theo nhu cầu
+}
 
 # Lấy thông tin từ biến môi trường
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -59,7 +68,7 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
 
-async def get_chat_response(chat_id: int, user_message: str, message_object=None):
+async def get_chat_response(chat_id: int, user_message: str, message_object=None, parse_mode=ParseMode.HTML):
     try:
         recent_messages = list(messages_collection.find(
             {'chat_id': chat_id}
@@ -90,11 +99,11 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 buffer += content
                 full_response += content
 
-                # Chỉ cập nhật khi có sự thay đổi đáng kể
+                # Cập nhật khi có sự thay đổi đáng kể
                 if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
                         try:
-                            await message_object.edit_text(full_response, parse_mode='MarkdownV2')
+                            await message_object.edit_text(full_response, parse_mode=parse_mode)
                             last_update = full_response  # Cập nhật nội dung cuối
                             buffer = ""
                             await asyncio.sleep(0.01)
@@ -102,10 +111,10 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                             if "Message is not modified" not in str(edit_error):
                                 logger.error(f"Error editing message: {edit_error}")
 
-        # Cập nhật lần cuối chỉ khi có thay đổi
+        # Cập nhật lần cuối nếu có thay đổi
         if message_object and full_response.strip() and full_response != last_update:
             try:
-                await message_object.edit_text(full_response, parse_mode='MarkdownV2')
+                await message_object.edit_text(full_response, parse_mode=parse_mode)
             except Exception as final_edit_error:
                 if "Message is not modified" not in str(final_edit_error):
                     logger.error(f"Error in final message edit: {final_edit_error}")
@@ -139,41 +148,46 @@ async def handle_message(update: Update, context: CallbackContext):
     if not text:
         return
 
+    # Lấy chat_mode từ cấu hình; ví dụ sử dụng chế độ mặc định "default"
+    chat_mode = "default"
+    # Chọn parse_mode động theo cấu hình
+    parse_mode = {"html": ParseMode.HTML, "markdown": ParseMode.MARKDOWN}[config["chat_modes"][chat_mode]["parse_mode"]]
+
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Tạo tin nhắn placeholder với định dạng MarkdownV2
+        # Gửi tin nhắn placeholder với định dạng dựa theo parse_mode đã chọn
         message = await context.bot.send_message(
             chat_id=chat_id,
             text="Đang suy nghĩ...",
-            parse_mode='MarkdownV2'
+            parse_mode=parse_mode
         )
 
-        response = await get_chat_response(chat_id, text, message)
+        response = await get_chat_response(chat_id, text, message, parse_mode=parse_mode)
 
         if response and response.strip():
             try:
-                # Chỉ cập nhật nếu nội dung khác với placeholder
+                # Chỉ cập nhật nếu nội dung khác với placeholder ban đầu
                 if message.text != response:
-                    await message.edit_text(response, parse_mode='MarkdownV2')
+                    await message.edit_text(response, parse_mode=parse_mode)
             except Exception as e:
                 if "Message is not modified" not in str(e):
                     logger.error(f"Error in final update: {e}")
-                    # Gửi tin nhắn mới nếu không thể edit
+                    # Nếu không thể edit tin nhắn, gửi tin nhắn mới
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=response,
-                        parse_mode='MarkdownV2'
+                        parse_mode=parse_mode
                     )
         else:
-            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode='MarkdownV2')
+            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=parse_mode)
 
     except Exception as e:
         logger.error(f"Error handling message: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
             text="Đã xảy ra lỗi, vui lòng thử lại.",
-            parse_mode='MarkdownV2'
+            parse_mode=parse_mode
         )
 
 # Tạo FastAPI app
@@ -182,17 +196,17 @@ web_app = FastAPI()
 # Khởi tạo Telegram bot Application
 telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Thêm handlers
+# Thêm handler cho tin nhắn văn bản
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Biến để lưu trữ trạng thái khởi tạo
+# Biến lưu trạng thái khởi tạo của ứng dụng
 is_initialized = False
 
 @web_app.on_event("startup")
 async def on_startup():
     global is_initialized
     if not is_initialized:
-        # Create indexes
+        # Tạo index cho MongoDB
         messages_collection.create_index([("chat_id", 1)])
         messages_collection.create_index([("timestamp", -1)])
         await telegram_app.initialize()
@@ -227,7 +241,7 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Thêm exception handler cho tất cả các exception
+# Exception handler toàn cục
 @web_app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global error: {exc}")
@@ -236,11 +250,10 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"status": "ok"}
     )
 
-# Thêm middleware để xử lý request HEAD
+# Middleware xử lý request HEAD
 @web_app.middleware("http")
 async def handle_head_requests(request: Request, call_next):
     if request.method == "HEAD":
-        # Trả về response 200 cho HEAD request
         return JSONResponse(
             status_code=200,
             content={"status": "ok"}
@@ -248,7 +261,7 @@ async def handle_head_requests(request: Request, call_next):
     response = await call_next(request)
     return response
 
-# Sửa route "/" để xử lý cả GET và HEAD
+# Route "/" xử lý cả GET và HEAD
 @web_app.get("/")
 @web_app.head("/")
 async def home():
