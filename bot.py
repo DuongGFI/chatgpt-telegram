@@ -69,6 +69,15 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
 
+SYSTEM_PROMPT = """Bạn là một trợ lý hữu ích. Khi trả lời, luôn đảm bảo định dạng HTML chính xác.
+1. Nếu người dùng yêu cầu code, hãy luôn bọc code trong thẻ <pre><code>
+2. Nếu cần nhấn mạnh từ ngữ quan trọng, sử dụng thẻ <b> hoặc <i>
+3. Khi liệt kê các bước, sử dụng <ol> để đánh số tự động
+4. Khi cần tạo danh sách không thứ tự, sử dụng <ul>
+5. Mỗi đoạn văn nên được bọc trong thẻ <p>
+6. Khi cần chèn URL, luôn sử dụng thẻ <a> với href đầy đủ
+Hãy viết câu trả lời rõ ràng, dễ hiểu và có định dạng phù hợp."""
+
 async def get_chat_response(chat_id: int, user_message: str, message_object=None, parse_mode=ParseMode.HTML):
     try:
         recent_messages = list(messages_collection.find(
@@ -86,7 +95,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
 
         stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
+            messages=[{"role": "system", "content": SYSTEM_PROMPT} + {"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
             stream=True
         )
         
