@@ -9,6 +9,7 @@ from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
+from keep_alive import keep_alive
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -153,6 +154,7 @@ async def index():
     return {"message": "Telegram bot webhook is running."}
 
 if __name__ == "__main__":
+    keep_alive()
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("bot:web_app", host="0.0.0.0", port=port, reload=True)
