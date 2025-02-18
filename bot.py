@@ -92,49 +92,53 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
         full_response = ""
         buffer = ""
         last_update = ""  # Lưu nội dung cập nhật cuối cùng
+        
+        async def try_edit_message(text: str, current_parse_mode):
+            try:
+                await message_object.edit_text(text, parse_mode=current_parse_mode)
+                return True
+            except Exception as e:
+                logger.warning(f"Failed to edit message with {current_parse_mode}: {e}")
+                return False
 
-        async for chunk in stream:
+        for chunk in stream:
             if chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
                 buffer += content
                 full_response += content
 
-                # Cập nhật khi có sự thay đổi đáng kể
                 if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
-                        try:
-                            await message_object.edit_text(full_response, parse_mode=parse_mode)
-                            last_update = full_response  # Cập nhật nội dung cuối
-                            buffer = ""
-                            await asyncio.sleep(0.01)
-                        except Exception as edit_error:
-                            if "Message is not modified" not in str(edit_error):
-                                logger.error(f"Error editing message: {edit_error}")
+                        # Try HTML first
+                        success = await try_edit_message(full_response, ParseMode.HTML)
+                        
+                        # If HTML fails, try Markdown
+                        if not success:
+                            success = await try_edit_message(full_response, ParseMode.MARKDOWN)
+                            
+                        # If both fail, use plain text
+                        if not success:
+                            try:
+                                await message_object.edit_text(full_response, parse_mode=None)
+                            except Exception as plain_error:
+                                if "Message is not modified" not in str(plain_error):
+                                    logger.error(f"Failed to send even plain text: {plain_error}")
+                        
+                        last_update = full_response
+                        buffer = ""
+                        await asyncio.sleep(0.01)
 
-        # Cập nhật lần cuối nếu có thay đổi
+        # Final update with the same fallback mechanism
         if message_object and full_response.strip() and full_response != last_update:
-            try:
-                await message_object.edit_text(full_response, parse_mode=parse_mode)
-            except Exception as final_edit_error:
-                if "Message is not modified" not in str(final_edit_error):
-                    logger.error(f"Error in final message edit: {final_edit_error}")
-
-        # Lưu vào MongoDB
-        if full_response.strip():
-            messages_collection.insert_many([
-                {
-                    'chat_id': chat_id,
-                    'role': "user",
-                    'content': user_message,
-                    'timestamp': datetime.now()
-                },
-                {
-                    'chat_id': chat_id,
-                    'role': "assistant",
-                    'content': full_response,
-                    'timestamp': datetime.now()
-                }
-            ])
+            success = await try_edit_message(full_response, ParseMode.HTML)
+            if not success:
+                success = await try_edit_message(full_response, ParseMode.MARKDOWN)
+                if not success:
+                    try:
+                        await message_object.edit_text(full_response, parse_mode=None)
+                    except Exception as final_plain_error:
+                        if "Message is not modified" not in str(final_plain_error):
+                            logger.error(f"Final update failed with plain text: {final_plain_error}")
 
         return full_response
 
@@ -148,47 +152,167 @@ async def handle_message(update: Update, context: CallbackContext):
     if not text:
         return
 
-    # Lấy chat_mode từ cấu hình; ví dụ sử dụng chế độ mặc định "default"
-    chat_mode = "default"
-    # Chọn parse_mode động theo cấu hình
-    parse_mode = {"html": ParseMode.HTML, "markdown": ParseMode.MARKDOWN}[config["chat_modes"][chat_mode]["parse_mode"]]
-
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Gửi tin nhắn placeholder với định dạng dựa theo parse_mode đã chọn
-        message = await context.bot.send_message(
-            chat_id=chat_id,
-            text="Đang suy nghĩ...",
-            parse_mode=parse_mode
-        )
+        # Try sending initial message with HTML
+        try:
+            message = await context.bot.send_message(
+                chat_id=chat_id,
+                text="Đang suy nghĩ...",
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as html_error:
+            logger.warning(f"HTML formatting failed: {html_error}")
+            try:
+                # Try Markdown if HTML fails
+                message = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Đang suy nghĩ...",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as md_error:
+                logger.warning(f"Markdown formatting failed: {md_error}")
+                # Fall back to plain text
+                message = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Đang suy nghĩ...",
+                    parse_mode=None
+                )
 
-        response = await get_chat_response(chat_id, text, message, parse_mode=parse_mode)
+        response = await get_chat_response(chat_id, text, message)
 
         if response and response.strip():
-            try:
-                # Chỉ cập nhật nếu nội dung khác với placeholder ban đầu
-                if message.text != response:
-                    await message.edit_text(response, parse_mode=parse_mode)
-            except Exception as e:
-                if "Message is not modified" not in str(e):
-                    logger.error(f"Error in final update: {e}")
-                    # Nếu không thể edit tin nhắn, gửi tin nhắn mới
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=response,
-                        parse_mode=parse_mode
-                    )
+            # The formatting fallback is handled inside get_chat_response
+            pass
         else:
-            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=parse_mode)
+            # Try sending error message with fallback formatting
+            try:
+                await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=ParseMode.HTML)
+            except Exception:
+                try:
+                    await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=None)
 
     except Exception as e:
         logger.error(f"Error handling message: {e}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Đã xảy ra lỗi, vui lòng thử lại.",
-            parse_mode=parse_mode
-        )
+        # Final fallback for error message
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Đã xảy ra lỗi, vui lòng thử lại.",
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Đã xảy ra lỗi, vui lòng thử lại.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Đã xảy ra lỗi, vui lòng thử lại.",
+                    parse_mode=None
+                )
+    #     async for chunk in stream:
+    #         if chunk.choices[0].delta.content is not None:
+    #             content = chunk.choices[0].delta.content
+    #             buffer += content
+    #             full_response += content
+
+    #             # Cập nhật khi có sự thay đổi đáng kể
+    #             if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
+    #                 if message_object and full_response.strip() and full_response != last_update:
+    #                     try:
+    #                         await message_object.edit_text(full_response, parse_mode=parse_mode)
+    #                         last_update = full_response  # Cập nhật nội dung cuối
+    #                         buffer = ""
+    #                         await asyncio.sleep(0.01)
+    #                     except Exception as edit_error:
+    #                         if "Message is not modified" not in str(edit_error):
+    #                             logger.error(f"Error editing message: {edit_error}")
+
+    #     # Cập nhật lần cuối nếu có thay đổi
+    #     if message_object and full_response.strip() and full_response != last_update:
+    #         try:
+    #             await message_object.edit_text(full_response, parse_mode=parse_mode)
+    #         except Exception as final_edit_error:
+    #             if "Message is not modified" not in str(final_edit_error):
+    #                 logger.error(f"Error in final message edit: {final_edit_error}")
+
+    #     # Lưu vào MongoDB
+    #     if full_response.strip():
+    #         messages_collection.insert_many([
+    #             {
+    #                 'chat_id': chat_id,
+    #                 'role': "user",
+    #                 'content': user_message,
+    #                 'timestamp': datetime.now()
+    #             },
+    #             {
+    #                 'chat_id': chat_id,
+    #                 'role': "assistant",
+    #                 'content': full_response,
+    #                 'timestamp': datetime.now()
+    #             }
+    #         ])
+
+    #     return full_response
+
+    # except Exception as e:
+    #     logger.error(f"Error in get_chat_response: {e}")
+    #     return "I'm sorry, there was an error processing your request."
+
+# async def handle_message(update: Update, context: CallbackContext):
+#     chat_id = update.effective_chat.id
+#     text = update.message.text
+#     if not text:
+#         return
+
+#     # Lấy chat_mode từ cấu hình; ví dụ sử dụng chế độ mặc định "default"
+#     chat_mode = "default"
+#     # Chọn parse_mode động theo cấu hình
+#     parse_mode = {"html": ParseMode.HTML, "markdown": ParseMode.MARKDOWN}[config["chat_modes"][chat_mode]["parse_mode"]]
+
+#     try:
+#         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+#         # Gửi tin nhắn placeholder với định dạng dựa theo parse_mode đã chọn
+#         message = await context.bot.send_message(
+#             chat_id=chat_id,
+#             text="Đang suy nghĩ...",
+#             parse_mode=parse_mode
+#         )
+
+#         response = await get_chat_response(chat_id, text, message, parse_mode=parse_mode)
+
+#         if response and response.strip():
+#             try:
+#                 # Chỉ cập nhật nếu nội dung khác với placeholder ban đầu
+#                 if message.text != response:
+#                     await message.edit_text(response, parse_mode=parse_mode)
+#             except Exception as e:
+#                 if "Message is not modified" not in str(e):
+#                     logger.error(f"Error in final update: {e}")
+#                     # Nếu không thể edit tin nhắn, gửi tin nhắn mới
+#                     await context.bot.send_message(
+#                         chat_id=chat_id,
+#                         text=response,
+#                         parse_mode=parse_mode
+#                     )
+#         else:
+#             await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=parse_mode)
+
+#     except Exception as e:
+#         logger.error(f"Error handling message: {e}")
+#         await context.bot.send_message(
+#             chat_id=chat_id,
+#             text="Đã xảy ra lỗi, vui lòng thử lại.",
+#             parse_mode=parse_mode
+#         )
 
 # Tạo FastAPI app
 web_app = FastAPI()
