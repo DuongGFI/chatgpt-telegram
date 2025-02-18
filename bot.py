@@ -93,7 +93,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 full_response += content
 
                 # Chỉ cập nhật khi có sự thay đổi đáng kể
-                if len(buffer) >= 5 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
+                if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
                         try:
                             await message_object.edit_text(full_response)
