@@ -71,7 +71,6 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 OPENAI_API_KEY=your_openai_api_key
 MONGODB_URI=your_mongodb_connection_string
 WEBHOOK_URL=https://your-app-name.onrender.com/webhook
-RENDER_URL=https://your-app-name.onrender.com
 ```
 
 ## 💾 Cấu Trúc Dữ Liệu
