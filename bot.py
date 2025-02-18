@@ -7,7 +7,8 @@ from typing import List, Dict
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
-from telegram import Update, ParseMode
+from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from pymongo import MongoClient
@@ -88,10 +89,6 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
             stream=True
         )
-
-        full_response = ""
-        buffer = ""
-        last_update = ""  # Lưu nội dung cập nhật cuối cùng
         
         async def try_edit_message(text: str, current_parse_mode):
             try:
@@ -101,7 +98,11 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 logger.warning(f"Failed to edit message with {current_parse_mode}: {e}")
                 return False
 
-        for chunk in stream:
+        full_response = ""
+        buffer = ""
+        last_update = ""
+
+        async for chunk in stream:
             if chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
                 buffer += content
@@ -114,7 +115,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                         
                         # If HTML fails, try Markdown
                         if not success:
-                            success = await try_edit_message(full_response, ParseMode.MARKDOWN)
+                            success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
                             
                         # If both fail, use plain text
                         if not success:
@@ -132,7 +133,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
         if message_object and full_response.strip() and full_response != last_update:
             success = await try_edit_message(full_response, ParseMode.HTML)
             if not success:
-                success = await try_edit_message(full_response, ParseMode.MARKDOWN)
+                success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
                 if not success:
                     try:
                         await message_object.edit_text(full_response, parse_mode=None)
@@ -169,7 +170,7 @@ async def handle_message(update: Update, context: CallbackContext):
                 message = await context.bot.send_message(
                     chat_id=chat_id,
                     text="Đang suy nghĩ...",
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN_V2
                 )
             except Exception as md_error:
                 logger.warning(f"Markdown formatting failed: {md_error}")
@@ -191,7 +192,7 @@ async def handle_message(update: Update, context: CallbackContext):
                 await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=ParseMode.HTML)
             except Exception:
                 try:
-                    await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=ParseMode.MARKDOWN)
+                    await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=ParseMode.MARKDOWN_V2)
                 except Exception:
                     await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode=None)
 
@@ -209,7 +210,7 @@ async def handle_message(update: Update, context: CallbackContext):
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text="Đã xảy ra lỗi, vui lòng thử lại.",
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN_V2
                 )
             except Exception:
                 await context.bot.send_message(
