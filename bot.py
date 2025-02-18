@@ -161,7 +161,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
         # Gọi OpenAI với streaming=True
         stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
+            messages,
             stream=True
         )
 
