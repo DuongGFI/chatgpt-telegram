@@ -1,27 +1,43 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+import uvicorn
+from threading import Thread
 import requests
-import os
 import time
-import threading
+import os
 
-app = FastAPI()
+web_app = FastAPI()
 
-@app.get("/")
-def home():
-    return {"message": "Bot is running!"}
+@web_app.get("/")
+async def home():
+    return "Bot is alive!"
 
-def keep_awake():
+@web_app.get("/health")
+async def health_check():
+    return JSONResponse({
+        "status": "healthy",
+        "timestamp": time.time(),
+        "uptime": "active"
+    })
+
+def run():
+    uvicorn.run(web_app, host='0.0.0.0', port=int(os.getenv('PORT', 10000)))
+
+def keep_alive():
+    server_thread = Thread(target=run)
+    server_thread.daemon = True  # Để thread tự đóng khi chương trình chính kết thúc
+    server_thread.start()
+
+def ping_self():
     while True:
         try:
-            url = os.getenv("RENDER_URL")  # URL của ứng dụng (ví dụ: https://your-app.onrender.com/)
-            if url:
-                response = requests.get(url, timeout=5)
-                print(f"Ping response: {response.status_code}")
-            time.sleep(600)  # Ping mỗi 10 phút
+            url = os.getenv('RENDER_URL', 'http://localhost:10000')
+            requests.get(f"{url}/health")
         except Exception as e:
-            print(f"Ping failed: {e}")
+            print(f"Ping failed: {str(e)}")
+        time.sleep(300)  # Ping mỗi 5 phút
 
-@app.on_event("startup")
-def start_keep_awake():
-    thread = threading.Thread(target=keep_awake, daemon=True)
-    thread.start()
+def start_ping():
+    ping_thread = Thread(target=ping_self)
+    ping_thread.daemon = True
+    ping_thread.start()
