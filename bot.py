@@ -88,14 +88,14 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                     for m in recent_messages][::-1]
         messages.append({"role": "user", "content": user_message})
 
-        if len(messages) > MAX_RECENT_MESSAGES:
-            summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
-        else:
-            summary = ""
+        # if len(messages) > MAX_RECENT_MESSAGES:
+        #     summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
+        # else:
+        #     summary = ""
 
         stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT} + {"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
             stream=True
         )
         
