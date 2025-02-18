@@ -10,7 +10,6 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from pymongo import MongoClient
-from keep_alive import keep_alive, start_ping
 
 
 # Cấu hình logging
@@ -176,16 +175,6 @@ async def telegram_webhook(request: Request):
 async def home():
     return "Bot is alive!"
 
-@web_app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": time.time(),
-        "uptime": "active"
-    }
-
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
-    keep_alive()
-    start_ping()
     uvicorn.run("bot:web_app", host="0.0.0.0", port=port)
