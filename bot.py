@@ -69,17 +69,87 @@ async def get_chat_summary(messages: List[Dict[str, str]]) -> str:
         logger.error(f"Error in get_chat_summary: {e}")
         return "Error generating summary."
 
-SYSTEM_PROMPT = """Bạn là một trợ lý hữu ích. Khi trả lời, luôn đảm bảo định dạng HTML chính xác.
-1. Nếu người dùng yêu cầu code, hãy luôn bọc code trong thẻ <pre><code>
-2. Nếu cần nhấn mạnh từ ngữ quan trọng, sử dụng thẻ <b> hoặc <i>
-3. Khi liệt kê các bước, sử dụng <ol> để đánh số tự động
-4. Khi cần tạo danh sách không thứ tự, sử dụng <ul>
-5. Mỗi đoạn văn nên được bọc trong thẻ <p>
-6. Khi cần chèn URL, luôn sử dụng thẻ <a> với href đầy đủ
-Hãy viết câu trả lời rõ ràng, dễ hiểu và có định dạng phù hợp."""
 
-async def get_chat_response(chat_id: int, user_message: str, message_object=None, parse_mode=ParseMode.HTML):
+# async def get_chat_response(chat_id: int, user_message: str, message_object=None, parse_mode=ParseMode.HTML):
+#     try:
+#         recent_messages = list(messages_collection.find(
+#             {'chat_id': chat_id}
+#         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
+
+#         messages = [{"role": m['role'], "content": m['content']}
+#                     for m in recent_messages][::-1]
+#         messages.append({"role": "user", "content": user_message})
+
+#         # if len(messages) > MAX_RECENT_MESSAGES:
+#         #     summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
+#         # else:
+#         #     summary = ""
+
+#         stream = await client.chat.completions.create(
+#             model="gpt-3.5-turbo-16k",
+#             messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
+#             stream=True
+#         )
+        
+#         async def try_edit_message(text: str, current_parse_mode):
+#             try:
+#                 await message_object.edit_text(text, parse_mode=current_parse_mode)
+#                 return True
+#             except Exception as e:
+#                 logger.warning(f"Failed to edit message with {current_parse_mode}: {e}")
+#                 return False
+
+#         full_response = ""
+#         buffer = ""
+#         last_update = ""
+
+#         async for chunk in stream:
+#             if chunk.choices[0].delta.content is not None:
+#                 content = chunk.choices[0].delta.content
+#                 buffer += content
+#                 full_response += content
+
+#                 if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
+#                     if message_object and full_response.strip() and full_response != last_update:
+#                         # Try HTML first
+#                         success = await try_edit_message(full_response, ParseMode.HTML)
+                        
+#                         # If HTML fails, try Markdown
+#                         if not success:
+#                             success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
+                            
+#                         # If both fail, use plain text
+#                         if not success:
+#                             try:
+#                                 await message_object.edit_text(full_response, parse_mode=None)
+#                             except Exception as plain_error:
+#                                 if "Message is not modified" not in str(plain_error):
+#                                     logger.error(f"Failed to send even plain text: {plain_error}")
+                        
+#                         last_update = full_response
+#                         buffer = ""
+#                         await asyncio.sleep(0.01)
+
+#         # Final update with the same fallback mechanism
+#         if message_object and full_response.strip() and full_response != last_update:
+#             success = await try_edit_message(full_response, ParseMode.HTML)
+#             if not success:
+#                 success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
+#                 if not success:
+#                     try:
+#                         await message_object.edit_text(full_response, parse_mode=None)
+#                     except Exception as final_plain_error:
+#                         if "Message is not modified" not in str(final_plain_error):
+#                             logger.error(f"Final update failed with plain text: {final_plain_error}")
+
+#         return full_response
+
+#     except Exception as e:
+#         logger.error(f"Error in get_chat_response: {e}")
+#         return "I'm sorry, there was an error processing your request."
+async def get_chat_response(chat_id: int, user_message: str, message_object=None):
     try:
+        # Lấy các tin nhắn cũ trong DB để ghép thành context
         recent_messages = list(messages_collection.find(
             {'chat_id': chat_id}
         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
@@ -88,17 +158,14 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                     for m in recent_messages][::-1]
         messages.append({"role": "user", "content": user_message})
 
-        # if len(messages) > MAX_RECENT_MESSAGES:
-        #     summary = await get_chat_summary(messages[:-MAX_RECENT_MESSAGES])
-        # else:
-        #     summary = ""
-
+        # Gọi OpenAI với streaming=True
         stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
             messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
             stream=True
         )
-        
+
+        # Hàm thử edit với parse_mode tương ứng
         async def try_edit_message(text: str, current_parse_mode):
             try:
                 await message_object.edit_text(text, parse_mode=current_parse_mode)
@@ -117,32 +184,31 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 buffer += content
                 full_response += content
 
+                # Cứ đủ 50 ký tự hoặc gặp một số dấu câu nhất định thì gửi edit để tạo hiệu ứng streaming
                 if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
-                        # Try HTML first
-                        success = await try_edit_message(full_response, ParseMode.HTML)
-                        
-                        # If HTML fails, try Markdown
+                        # Thử Markdown trước (để code hiển thị dưới dạng ```...```)
+                        success = await try_edit_message(full_response, ParseMode.MARKDOWN)
                         if not success:
-                            success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
-                            
-                        # If both fail, use plain text
+                            # Thử HTML nếu Markdown lỗi
+                            success = await try_edit_message(full_response, ParseMode.HTML)
                         if not success:
+                            # Cuối cùng là plain text
                             try:
                                 await message_object.edit_text(full_response, parse_mode=None)
                             except Exception as plain_error:
                                 if "Message is not modified" not in str(plain_error):
                                     logger.error(f"Failed to send even plain text: {plain_error}")
-                        
+
                         last_update = full_response
                         buffer = ""
                         await asyncio.sleep(0.01)
 
-        # Final update with the same fallback mechanism
+        # Lần update cuối
         if message_object and full_response.strip() and full_response != last_update:
-            success = await try_edit_message(full_response, ParseMode.HTML)
+            success = await try_edit_message(full_response, ParseMode.MARKDOWN)
             if not success:
-                success = await try_edit_message(full_response, ParseMode.MARKDOWN_V2)
+                success = await try_edit_message(full_response, ParseMode.HTML)
                 if not success:
                     try:
                         await message_object.edit_text(full_response, parse_mode=None)
@@ -155,7 +221,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
     except Exception as e:
         logger.error(f"Error in get_chat_response: {e}")
         return "I'm sorry, there was an error processing your request."
-
+        
 async def handle_message(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     text = update.message.text
