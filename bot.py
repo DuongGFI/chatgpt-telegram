@@ -12,7 +12,6 @@ from telegram.ext import Application, MessageHandler, filters, CallbackContext
 from openai import AsyncOpenAI
 from pymongo import MongoClient
 
-
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ try:
 except Exception as e:
     logger.error(f"MongoDB connection failed: {e}")
     raise
-    
+
 MAX_RECENT_MESSAGES = 10
 CONTEXT_UPDATE_INTERVAL = 5 * 60
 SUMMARY_PROMPT = (
@@ -67,7 +66,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
         ).sort('timestamp', -1).limit(MAX_RECENT_MESSAGES))
 
         messages = [{"role": m['role'], "content": m['content']}
-                   for m in recent_messages][::-1]
+                    for m in recent_messages][::-1]
         messages.append({"role": "user", "content": user_message})
 
         if len(messages) > MAX_RECENT_MESSAGES:
@@ -77,8 +76,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
 
         stream = await client.chat.completions.create(
             model="gpt-3.5-turbo-16k",
-            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
-                    + messages,
+            messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}] + messages,
             stream=True
         )
 
@@ -96,7 +94,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
                 if len(buffer) >= 50 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
                     if message_object and full_response.strip() and full_response != last_update:
                         try:
-                            await message_object.edit_text(full_response)
+                            await message_object.edit_text(full_response, parse_mode='MarkdownV2')
                             last_update = full_response  # Cập nhật nội dung cuối
                             buffer = ""
                             await asyncio.sleep(0.01)
@@ -107,7 +105,7 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
         # Cập nhật lần cuối chỉ khi có thay đổi
         if message_object and full_response.strip() and full_response != last_update:
             try:
-                await message_object.edit_text(full_response)
+                await message_object.edit_text(full_response, parse_mode='MarkdownV2')
             except Exception as final_edit_error:
                 if "Message is not modified" not in str(final_edit_error):
                     logger.error(f"Error in final message edit: {final_edit_error}")
@@ -144,11 +142,11 @@ async def handle_message(update: Update, context: CallbackContext):
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Tạo tin nhắn placeholder với formatting
+        # Tạo tin nhắn placeholder với định dạng MarkdownV2
         message = await context.bot.send_message(
             chat_id=chat_id,
             text="Đang suy nghĩ...",
-            parse_mode='HTML'
+            parse_mode='MarkdownV2'
         )
 
         response = await get_chat_response(chat_id, text, message)
@@ -157,23 +155,25 @@ async def handle_message(update: Update, context: CallbackContext):
             try:
                 # Chỉ cập nhật nếu nội dung khác với placeholder
                 if message.text != response:
-                    await message.edit_text(response)
+                    await message.edit_text(response, parse_mode='MarkdownV2')
             except Exception as e:
                 if "Message is not modified" not in str(e):
                     logger.error(f"Error in final update: {e}")
                     # Gửi tin nhắn mới nếu không thể edit
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text=response
+                        text=response,
+                        parse_mode='MarkdownV2'
                     )
         else:
-            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.")
+            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.", parse_mode='MarkdownV2')
 
     except Exception as e:
         logger.error(f"Error handling message: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Đã xảy ra lỗi, vui lòng thử lại."
+            text="Đã xảy ra lỗi, vui lòng thử lại.",
+            parse_mode='MarkdownV2'
         )
 
 # Tạo FastAPI app
