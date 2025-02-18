@@ -139,39 +139,58 @@ async def get_chat_response(chat_id: int, user_message: str, message_object=None
             model="gpt-3.5-turbo-16k",
             messages=[{"role": "system", "content": f"Current conversation summary: {summary}"}]
                     + messages,
-            stream=True  # Bật chế độ stream
+            stream=True
         )
 
         full_response = ""
+        buffer = ""  # Buffer để tích lũy text
+
         async for chunk in stream:
             if chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
+                buffer += content
                 full_response += content
-                # Nếu có message_object, cập nhật nội dung
-                if message_object:
-                    await message_object.edit_text(full_response)
-                    await asyncio.sleep(0.01)
+
+                # Chỉ cập nhật khi buffer có đủ ký tự hoặc là dấu câu
+                if len(buffer) >= 20 or any(punct in buffer for punct in ['.', '!', '?', '\n']):
+                    if message_object and full_response.strip():  # Kiểm tra nội dung không trống
+                        try:
+                            await message_object.edit_text(full_response)
+                            buffer = ""  # Reset buffer sau khi cập nhật
+                            await asyncio.sleep(0.1)
+                        except Exception as edit_error:
+                            logger.error(f"Error editing message: {edit_error}")
+
+        # Cập nhật lần cuối với toàn bộ nội dung
+        if message_object and full_response.strip():
+            try:
+                await message_object.edit_text(full_response)
+            except Exception as final_edit_error:
+                logger.error(f"Error in final message edit: {final_edit_error}")
 
         # Lưu tin nhắn vào MongoDB
-        messages_collection.insert_many([
-            {
-                'chat_id': chat_id,
-                'role': "user",
-                'content': user_message,
-                'timestamp': datetime.now()
-            },
-            {
-                'chat_id': chat_id,
-                'role': "assistant",
-                'content': full_response,
-                'timestamp': datetime.now()
-            }
-        ])
+        if full_response.strip():  # Chỉ lưu nếu có nội dung
+            messages_collection.insert_many([
+                {
+                    'chat_id': chat_id,
+                    'role': "user",
+                    'content': user_message,
+                    'timestamp': datetime.now()
+                },
+                {
+                    'chat_id': chat_id,
+                    'role': "assistant",
+                    'content': full_response,
+                    'timestamp': datetime.now()
+                }
+            ])
 
         return full_response
+
     except Exception as e:
         logger.error(f"Error in get_chat_response: {e}")
         return "I'm sorry, there was an error processing your request."
+
 async def handle_message(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     text = update.message.text
@@ -185,20 +204,31 @@ async def handle_message(update: Update, context: CallbackContext):
         # Tạo tin nhắn placeholder
         message = await context.bot.send_message(
             chat_id=chat_id,
-            text="..."
+            text="Đang suy nghĩ..."  # Placeholder rõ ràng hơn
         )
 
         # Gọi get_chat_response với message object
         response = await get_chat_response(chat_id, text, message)
 
-        # Đảm bảo tin nhắn cuối cùng được hiển thị đầy đủ
-        await message.edit_text(response)
+        # Kiểm tra response trước khi cập nhật lần cuối
+        if response and response.strip():
+            try:
+                await message.edit_text(response)
+            except Exception as e:
+                logger.error(f"Error in final update: {e}")
+                # Gửi tin nhắn mới nếu không thể edit
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=response
+                )
+        else:
+            await message.edit_text("Xin lỗi, tôi không thể tạo câu trả lời.")
 
     except Exception as e:
         logger.error(f"Error handling message: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
-            text="I'm sorry, an error occurred."
+            text="Đã xảy ra lỗi, vui lòng thử lại."
         )
 # Tạo FastAPI app
 web_app = FastAPI()
