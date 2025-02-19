@@ -1,8 +1,9 @@
 import logging
 import asyncio
 import os
-import time  # Thiếu import cho health_check
-import uvicorn  # Thiếu import cho running server
+import time
+import uvicorn
+import telegram
 from typing import List, Dict
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
